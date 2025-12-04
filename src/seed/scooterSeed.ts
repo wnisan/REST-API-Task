@@ -13,25 +13,19 @@ export const seedScooters = async () => {
         {
             firstName: "Иван",
             lastName: "Петров",
-            email: "ivan.petrov@example.com",
-            phone: "+79991234567",
             card: {
                 owner: "Иван Петров",
                 number: "4111111111111111",
-                validThrough: new Date("2028-12-01"),
-                cvv: "123"
+                validThrough: new Date("2028-12-01")
             }
         },
         {
             firstName: "Мария",
             lastName: "Смирнова",
-            email: "maria.smirnova@example.com",
-            phone: "+79995554433",
             card: {
                 owner: "Мария Смирнова",
                 number: "4000000000000002",
-                validThrough: new Date("2027-09-01"),
-                cvv: "456"
+                validThrough: new Date("2027-09-01")
             }
         }
     ]);
@@ -54,9 +48,6 @@ export const seedScooters = async () => {
             productionDate: "2022-01-10",
             status: "Free",
             chargeLevel: 87,
-            mileage: 152.4,
-            startChargeLevel: 87,
-            startMileage: 152.4,
             location: {
                 type: "Point",
                 coordinates: [37.6173, 55.7558]
@@ -70,10 +61,6 @@ export const seedScooters = async () => {
             productionDate: "2023-03-15",
             status: "In Service",
             chargeLevel: 45,
-            mileage: 312.8,
-            startChargeLevel: 45,
-            startMileage: 312.8,
-            driverId: driver1._id,      
             location: {
                 type: "Point",
                 coordinates: [30.3141, 59.9386]
@@ -87,10 +74,6 @@ export const seedScooters = async () => {
             productionDate: "2021-09-01",
             status: "Reserved",
             chargeLevel: 66,
-            mileage: 98.1,
-            startChargeLevel: 66,
-            startMileage: 98.1,
-            driverId: driver2._id,       
             location: {
                 type: "Point",
                 coordinates: [49.1234, 53.1959]
