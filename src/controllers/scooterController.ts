@@ -1,30 +1,19 @@
 import { Request, Response } from 'express';
+import { validationResult } from 'express-validator';
 import { Scooter } from '../models/Scooter';
 import { Driver } from '../models/Driver';
+import {
+    handleMongooseError,
+    isDuplicateKeyError
+} from '../utils/errorHandler';
 
-// Вспомогательная функция: проверка на дубликат 
-const isDuplicateKeyError = (error: any): boolean =>
-    !!error && (error.code === 11000 || error.code === 11001);
-
-const handleScooterDuplicateError = (res: Response, error: any): void => {
-    if (isDuplicateKeyError(error)) {
-        const fieldNames = Object.keys(error.keyPattern || {});
-        const field = fieldNames[0] || 'ssn';
-
-        res.status(409).json({
-            message: 'Самокат с таким значением уже существует.',
-            details: `Поле "${field}" должно быть уникальным. Укажите другое значение.`
-        });
-    }
-};
-
-// Уровень 0: Один endpoint для всех операций
+// УРОВЕНЬ 0 
 export const level0Handler = async (req: Request, res: Response): Promise<void> => {
     const { operation, data } = req.body;
 
     if (!operation) {
         res.status(400).json({
-            message: 'Не указана операция. В теле запроса должно быть поле "operation".'
+            message: 'Не указана операция.'
         });
         return;
     }
@@ -35,10 +24,11 @@ export const level0Handler = async (req: Request, res: Response): Promise<void> 
                 const scooters = await Scooter.find();
                 res.json(scooters);
                 break;
+
             case 'createScooter':
                 if (!data || typeof data !== 'object') {
                     res.status(400).json({
-                        message: 'Для создания самоката нужно передать объект "data" с его полями.'
+                        message: 'Нужен объект "data" с полями.'
                     });
                     break;
                 }
@@ -51,160 +41,120 @@ export const level0Handler = async (req: Request, res: Response): Promise<void> 
             case 'deleteScooter':
                 if (!data?.id) {
                     res.status(400).json({
-                        message: 'Для удаления самоката необходимо указать его идентификатор в поле "data.id".'
+                        message: 'Нужен data.id для удаления.'
                     });
                     break;
                 }
 
-                try {
-                    const deleted = await Scooter.findByIdAndDelete(data.id);
-
-                    if (!deleted) {
-                        res.status(404).json({
-                            message: 'Самокат с указанным идентификатором не найден. Возможно, он уже был удалён.'
-                        });
-                        break;
-                    }
-
-                    res.json({ message: 'Самокат успешно удалён.' });
-                } catch (error: any) {
-                    console.error('Ошибка при удалении самоката через level0Handler:', error);
-
-                    if (error?.name === 'CastError') {
-                        res.status(400).json({
-                            message: 'Некорректный формат идентификатора самоката. Используйте корректный ObjectId.'
-                        });
-                        break;
-                    }
-
-                    res.status(500).json({
-                        message: 'Не удалось удалить самокат из-за внутренней ошибки сервера.'
+                const deleted = await Scooter.findByIdAndDelete(data.id);
+                if (!deleted) {
+                    res.status(404).json({
+                        message: 'Самокат не найден.'
                     });
+                    break;
                 }
+
+                res.json({ message: 'Самокат удален.' });
                 break;
 
             default:
                 res.status(400).json({
-                    message: 'Некорректная операция. Поле \"operation\" должно содержать одно из значений: getAllScooters, createScooter, deleteScooter.'
+                    message: 'Некорректная операция.'
                 });
         }
     } catch (error: any) {
         console.error('Ошибка в level0Handler:', error);
 
-        if (isDuplicateKeyError(error)) {
-            handleScooterDuplicateError(res, error);
-            return;
-        }
-
-        if (error?.name === 'ValidationError') {
-            const fields = Object.keys(error.errors || {});
-            res.status(400).json({
-                message: 'Некорректные данные. Проверьте правильность заполнения полей.',
-                details: fields.length ? `Проблемные поля: ${fields.join(', ')}` : undefined
+        const handled = handleMongooseError(res, error);
+        if (!handled) {
+            res.status(500).json({
+                message: 'Ошибка сервера.'
             });
-            return;
         }
-
-        res.status(500).json({
-            message: 'На сервере произошла непредвиденная ошибка. Попробуйте повторить запрос позже.'
-        });
     }
 };
 
-// Уровни 1 + 2: RESTful endpoints с HTTP методами
-// GET /scooters - получить все самокаты
+// УРОВНИ 1-2 (REST) 
+
+// GET /scooters
 export const getAllScooters = async (req: Request, res: Response): Promise<void> => {
     try {
         const scooters = await Scooter.find().populate('currentRun.driver bookingsHistory.driver');
         res.status(200).json(scooters);
     } catch (error: any) {
-        console.error('Ошибка при получении списка самокатов:', error);
+        console.error('Ошибка при получении самокатов:', error);
         res.status(500).json({
-            message: 'Не удалось получить список самокатов. Попробуйте позже.'
+            message: 'Ошибка сервера.'
         });
     }
 };
 
-// GET /scooters/:id - получить конкретный самокат
+// GET /scooters/:id
 export const getScooterById = async (req: Request, res: Response): Promise<void> => {
     try {
-        const scooter = await Scooter.findById(req.params.id).populate('currentRun.driver bookingsHistory.driver');
+        const scooter = await Scooter.findById(req.params.id)
+            .populate('currentRun.driver bookingsHistory.driver');
 
         if (!scooter) {
             res.status(404).json({
-                message: 'Самокат с указанным идентификатором не найден. Проверьте правильность id.'
+                message: 'Самокат не найден.'
             });
             return;
         }
 
         res.status(200).json(scooter);
     } catch (error: any) {
-        console.error('Ошибка при получении самоката по id:', error);
+        console.error('Ошибка при получении самоката:', error);
 
         if (error?.name === 'CastError') {
             res.status(400).json({
-                message: 'Некорректный формат идентификатора самоката. Используйте корректный ObjectId.'
+                message: 'Некорректный ID.'
             });
             return;
         }
 
         res.status(500).json({
-            message: 'Не удалось получить данные самоката. Попробуйте позже.'
+            message: 'Ошибка сервера.'
         });
     }
 };
 
-// POST /scooters - создать новый самокат
+// POST /scooters
 export const createScooter = async (req: Request, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        res.status(400).json({ errors: errors.array() });
+        return;
+    }
+
     try {
-        const { ssn, brand, modelName, productionDate } = req.body || {};
-
-        const missingFields: string[] = [];
-        if (!ssn) missingFields.push('ssn');
-        if (!brand) missingFields.push('brand');
-        if (!modelName) missingFields.push('modelName');
-        if (!productionDate) missingFields.push('productionDate');
-
-        if (missingFields.length) {
-            res.status(400).json({
-                message: 'Отсутствуют обязательные поля для создания самоката.',
-                details: `Необходимо указать: ${missingFields.join(', ')}.`
-            });
-            return;
-        }
-
         const scooter = new Scooter(req.body);
         await scooter.save();
         res.status(201).json(scooter);
     } catch (error: any) {
         console.error('Ошибка при создании самоката:', error);
 
-        if (isDuplicateKeyError(error)) {
-            handleScooterDuplicateError(res, error);
-            return;
-        }
-
-        if (error?.name === 'ValidationError') {
-            const fields = Object.keys(error.errors || {});
-            res.status(400).json({
-                message: 'Некорректные данные для создания самоката. Проверьте обязательные поля.',
-                details: fields.length ? `Проблемные поля: ${fields.join(', ')}` : undefined
+        const handled = handleMongooseError(res, error);
+        if (!handled) {
+            res.status(500).json({
+                message: 'Ошибка сервера.'
             });
-            return;
         }
-
-        res.status(500).json({
-            message: 'Не удалось создать самокат из-за ошибки на сервере. Попробуйте позже.'
-        });
     }
 };
 
-// PUT /scooters/:id - обновить самокат
+// PUT /scooters/:id
 export const updateScooter = async (req: Request, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        res.status(400).json({ errors: errors.array() });
+        return;
+    }
+
     try {
         if (!Object.keys(req.body || {}).length) {
             res.status(400).json({
-                message: 'Для обновления самоката необходимо передать хотя бы одно поле в теле запроса.'
+                message: 'Нужно хотя бы одно поле для обновления.'
             });
             return;
         }
@@ -217,72 +167,55 @@ export const updateScooter = async (req: Request, res: Response): Promise<void> 
 
         if (!scooter) {
             res.status(404).json({
-                message: 'Самокат с указанным идентификатором не найден. Обновление невозможно.'
+                message: 'Самокат не найден.'
             });
             return;
         }
 
         res.status(200).json(scooter);
     } catch (error: any) {
-        console.error('Ошибка при обновлении самоката:', error);
+        console.error('Ошибка при обновлении:', error);
 
-        if (isDuplicateKeyError(error)) {
-            handleScooterDuplicateError(res, error);
-            return;
-        }
-
-        if (error?.name === 'ValidationError') {
-            const fields = Object.keys(error.errors || {});
-            res.status(400).json({
-                message: 'Некорректные данные для обновления самоката. Проверьте переданные поля.',
-                details: fields.length ? `Проблемные поля: ${fields.join(', ')}` : undefined
+        const handled = handleMongooseError(res, error);
+        if (!handled) {
+            res.status(500).json({
+                message: 'Ошибка сервера.'
             });
-            return;
         }
-
-        if (error?.name === 'CastError') {
-            res.status(400).json({
-                message: 'Некорректный формат идентификатора самоката. Используйте корректный ObjectId.'
-            });
-            return;
-        }
-
-        res.status(500).json({
-            message: 'Не удалось обновить самокат из-за ошибки на сервере. Попробуйте позже.'
-        });
     }
 };
 
-// DELETE /scooters/:id - удалить самокат
+// DELETE /scooters/:id
 export const deleteScooter = async (req: Request, res: Response): Promise<void> => {
     try {
         const scooter = await Scooter.findByIdAndDelete(req.params.id);
 
         if (!scooter) {
             res.status(404).json({
-                message: 'Самокат с указанным идентификатором не найден. Удаление невозможно.'
+                message: 'Самокат не найден.'
             });
             return;
         }
 
         res.status(204).send();
     } catch (error: any) {
-        console.error('Ошибка при удалении самоката:', error);
+        console.error('Ошибка при удалении:', error);
 
         if (error?.name === 'CastError') {
             res.status(400).json({
-                message: 'Некорректный формат идентификатора самоката. Используйте корректный ObjectId.'
+                message: 'Некорректный ID.'
             });
             return;
         }
 
         res.status(500).json({
-            message: 'Не удалось удалить самокат из-за ошибки на сервере. Попробуйте позже.'
+            message: 'Ошибка сервера.'
         });
     }
 };
 
-// Уровень 3: HATEOAS - добавляем ссылки на связанные ресурсы
+// УРОВЕНЬ 3 (HATEOAS) 
+
 export const getScootersWithLinks = async (req: Request, res: Response): Promise<void> => {
     try {
         const scooters = await Scooter.find()
@@ -308,57 +241,57 @@ export const getScootersWithLinks = async (req: Request, res: Response): Promise
             }
         });
     } catch (error: any) {
-        console.error('Ошибка при получении списка самокатов с ссылками (HATEOAS):', error);
+        console.error('Ошибка HATEOAS:', error);
         res.status(500).json({
-            message: 'Не удалось получить список самокатов. Попробуйте позже.'
+            message: 'Ошибка сервера.'
         });
     }
 };
 
-// Свободный самокат
+// GET /scooters/free
 export const getFreeScooters = async (req: Request, res: Response): Promise<void> => {
     try {
-        const freeScooters = await Scooter.find({ status: 'Free', chargeLevel: { $gt: 20 } });
+        const freeScooters = await Scooter.find({
+            status: 'Free',
+            chargeLevel: { $gt: 20 }
+        });
         res.status(200).json(freeScooters);
     } catch (error: any) {
         console.error('Ошибка при получении свободных самокатов:', error);
         res.status(500).json({
-            message: 'Не удалось получить список свободных самокатов. Попробуйте позже.'
+            message: 'Ошибка сервера.'
         });
     }
 };
 
-// Начать поездку
+// POST /rides/start
 export const startRide = async (req: Request, res: Response): Promise<void> => {
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        res.status(400).json({ errors: errors.array() });
+        return;
+    }
+
     try {
         const { scooterId, driverId } = req.body;
-
-         if (!scooterId || !driverId) {
-             res.status(400).json({
-                 message: 'Для начала поездки нужно указать идентификаторы самоката и водителя.',
-                 details: 'Поля "scooterId" и "driverId" являются обязательными.'
-             });
-             return;
-         }
-
         const scooter = await Scooter.findById(scooterId);
         const driver = await Driver.findById(driverId);
 
         if (!scooter || !driver) {
             res.status(404).json({
-                message: 'Самокат или водитель с указанными идентификаторами не найдены. Проверьте scooterId и driverId.'
+                message: 'Самокат или водитель не найден.'
             });
             return;
         }
 
         if (scooter.status !== 'Free') {
             res.status(400).json({
-                message: 'Самокат сейчас недоступен для начала поездки. Выберите другой самокат.'
+                message: 'Самокат занят.'
             });
             return;
         }
 
-        // Обновляем самокат для начала поездки
         scooter.status = 'In use';
         scooter.currentRun = {
             startDate: new Date(),
@@ -369,18 +302,19 @@ export const startRide = async (req: Request, res: Response): Promise<void> => {
 
         await scooter.save();
         res.status(200).json(scooter);
+
     } catch (error: any) {
         console.error('Ошибка при начале поездки:', error);
 
         if (error?.name === 'CastError') {
             res.status(400).json({
-                message: 'Некорректный формат идентификаторов scooterId или driverId. Используйте корректный ObjectId.'
+                message: 'Некорректный ID.'
             });
             return;
         }
 
         res.status(500).json({
-            message: 'Не удалось начать поездку из-за ошибки на сервере. Попробуйте позже.'
+            message: 'Ошибка сервера.'
         });
     }
 };

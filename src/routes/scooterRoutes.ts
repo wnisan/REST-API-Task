@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { createScooterValidation, startRideValidation } from '../validation/scooterValidation';
 import {
     level0Handler,
     getAllScooters,
@@ -20,13 +21,13 @@ router.post('/level0', level0Handler);
 router.get('/scooters', getAllScooters);           // GET все самокаты
 router.get('/scooters/free', getFreeScooters);     // GET свободные самокаты
 router.get('/scooters/:id', getScooterById);       // GET конкретный самокат
-router.post('/scooters', createScooter);           // POST создать самокат
+router.post('/scooters', createScooterValidation, createScooter);     // POST создать самокат
 router.put('/scooters/:id', updateScooter);        // PUT обновить самокат
 router.delete('/scooters/:id', deleteScooter);     // DELETE удалить самокат
 
 // Уровень 3:
 router.get('/scooters-hateoas', getScootersWithLinks);
 
-router.post('/scooters/start-ride', startRide);
+router.post('/scooters/start-ride', startRideValidation, startRide);
 
 export default router;
